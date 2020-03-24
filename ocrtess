@@ -1,0 +1,157 @@
+#!/bin/bash
+
+# Copyright (c) 2020 Mikołaj Machowski
+# Script for OCR by tesseract.
+# Created: 2020-02-17
+
+# Usage:
+#   ocrtess.sh f.pdf | jpegs [lang]
+#
+# f.pdf - process PDF with given name
+# jpegs - process *.jpg files in current directory
+# lang  - pol [default], eng, fra; can be used in combination
+#         eg. pol+eng
+
+# TODO: 
+#   spaces in 'jpegs'
+#   page by page to save disc space when processing pdfs
+#   refactor gs calls? (when doing page-by-page?)
+#   make gs calls more system independent
+#   work on pdfs when pdftk not available
+#   rewrite in Python...
+
+create_list_of_files () { # {{{
+    if [[ -r $arg && $arg =~ 'pdf' ]]; then
+        # Create jpeg files
+        test_for_pdftk
+        # These will be used as OCR material for Tesseract
+        gswin64c -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE -sDEVICE=jpeg -dJPEGQ=75 -r360 -sOutputFile="%04d${stamp}.jpg" "$arg"
+        # These will be used as material for pdftk sandwich
+        gswin64c -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="%04d${stamp}.pdf" "$arg"
+        list_of_jpegs=( $(ls *${stamp}.jpg) )
+        pdf_in=1
+
+
+    elif [[ $arg == 'jpegs' ]]; then
+        test_for_space
+        list_of_jpegs=( $(ls *.jpg) )
+        if [[ ${#list_of_jpegs[@]} -eq 0 ]]; then
+            printf "No JPEGs in current dir (Warning: only .jpg ext is recognised). Bye!" && exit
+        fi
+        pdf_in=0
+
+    else
+        printf "Unsupported files. Bye!\n" && exit
+
+    fi
+    guess_output_name
+} # }}}
+ocr_main_loop () { # {{{
+    # Main tesseract loop
+    # It will produce plethora of pdf files
+    for i in ${list_of_jpegs[@]}; do 
+        # --oem - OCR engine mode:
+        # 0 Legacy engine only.
+        # 1 Neural nets LSTM engine only. <- better results than default
+        # 2 Legacy + LSTM engines.
+        # 3 Default, based on what is available.
+        out_page=${i/.jpg/}${stamp}
+        tesseract $i ${out_page} --oem 1 -l $ocr_lang pdf > /dev/null 2>&1
+        if [[ $pdf_in -eq 1 ]]; then
+            gswin64c -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE \
+                -sDEVICE=pdfwrite -r96 -dCompatibilityLevel=1.7 -dPDFSETTINGS=/screen \
+                -dColorImageResolution=1 -dGrayImageResolution=1 -dMonoImageResolution=1 -dColorConverstionStrategy=/Gray -dProcessColorModel=/DeviceGray \
+                -sOutputFile="comp_${out_page}.pdf" ${out_page}.pdf
+            pdftk "${i/.jpg/.pdf}" background "comp_${out_page}.pdf" output "${i/.jpg/-ocr.pdf}"
+            # Reduce number of auxiliary files when processing
+            rm -f $i                     # JPG file
+            rm -f ${i/.jpg/.pdf}         # orig PDF page
+            rm -f ${out_page}.pdf        # Tesseract PDF page
+            rm -f comp_${out_page}.pdf   # compressed PDF page
+        fi
+    done
+} # }}}
+create_full_pdf () { # {{{
+    gswin64c -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE \
+        -sDEVICE=pdfwrite -r96 -dCompatibilityLevel=1.7 -dPDFSETTINGS=/default \
+        -sOutputFile="${output_name}" *${stamp}.pdf
+} # }}}
+final_pdf () { # {{{
+    # Compose all files into one PDF
+    if [[ $pdf_in -eq 0 ]]; then
+        create_full_pdf
+    elif [[ $pdf_in -eq 1 ]]; then
+        pdftk *-ocr.pdf cat output "${output_name}"
+    fi
+} # }}}
+clean_byproducts () { # {{{
+    # Removing auxiliary files
+    rm -f *${stamp}.pdf
+    rm -f *${stamp}-ocr.pdf
+    rm -f *${stamp}.jpg
+} # }}}
+test_for_space () { # {{{
+    # Test if fname has space in it and abort, we don't deal with them.
+    # For now.
+    if [[ $arg =~ ' ' || $(ls *.jpg | grep -c ' ') -ne 0 ]]; then
+        printf "Sorry, cannot handle spaces in filenames :(\n" && exit
+    fi
+} # }}}
+test_for_pdftk () { # {{{
+    # Test if fname has space in it and abort, we don't deal with them.
+    # For now.
+    if pdftk --version > /dev/null 2>&1; then
+        has_pdftk=1
+    else
+        has_pdftk=0
+        echo "No PDFtk, no sense in processing PDFs - size will be too big. Bye!" && exit
+    fi
+} # }}}
+guess_output_name () { # {{{
+    # In case of jpegs it is possible we are dealing with one batch with identical name,
+    # guess final output name
+    if [[ $arg == 'jpegs' ]]; then
+        unique_filenames=$(ls *.jpg | cut -f1 -d'(' | sort -u)
+        no_unique_filenames=$(ls *.jpg | cut -f1 -d'(' | sort -u | wc -l)
+        if [[ $no_unique_filenames -eq 1 ]]; then
+            output_name=${unique_filenames}".pdf"
+        else
+            output_name='jpegs-out.pdf'
+        fi
+    else
+        output_name="${arg/.pdf/}-out.pdf"
+    fi
+} # }}}
+setup_lang () { # {{{
+    # Set up OCR lang, for now globally
+    # Language detection?
+    if [ ! -z ${2+x} ]; then
+        ocr_lang=$2
+    else
+        ocr_lang='pol'
+    fi
+} # }}}
+prepare_timestamp () { # {{{
+    # Create unique stamp for auxiliary files
+    stamp='_ot_aux'-$(date +%Y-%m-%d-%H-%M-%S-%N)
+} # }}}
+
+# Setup arguments and basic variables {{{
+# Abort when no argument
+if [ -z ${1+x} ]; then
+    printf "Usage:\n"
+    printf "\t1. arg 'jpegs' or readable PDF file name required.\n"
+    printf "\t2. OCR lang, multiple languages in form lang1+lang2, supported: pol, eng, fra.\n" && exit
+fi
+
+arg="$1"
+# }}}
+
+setup_lang
+prepare_timestamp
+create_list_of_files
+ocr_main_loop
+final_pdf
+clean_byproducts
+
+# vim:fdm=marker
