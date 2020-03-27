@@ -20,14 +20,19 @@
 #   work on pdfs when pdftk not available
 #   rewrite in Python...
 
+# Setup binaries
+GSBIN='gswin64c'
+PDFTKBIN='pdftk'
+TESSBIN='tesseract'
+
 create_list_of_files () { # {{{
     if [[ -r $arg && $arg =~ 'pdf' ]]; then
         # Create jpeg files
         test_for_pdftk
         # These will be used as OCR material for Tesseract
-        gswin64c -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE -sDEVICE=jpeg -dJPEGQ=75 -r360 -sOutputFile="%04d${stamp}.jpg" "$arg"
+        $GSBIN -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE -sDEVICE=jpeg -dJPEGQ=75 -r360 -sOutputFile="%04d${stamp}.jpg" "$arg"
         # These will be used as material for pdftk sandwich
-        gswin64c -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="%04d${stamp}.pdf" "$arg"
+        $GSBIN -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="%04d${stamp}.pdf" "$arg"
         list_of_jpegs=( $(ls *${stamp}.jpg) )
         pdf_in=1
 
@@ -56,13 +61,13 @@ ocr_main_loop () { # {{{
         # 2 Legacy + LSTM engines.
         # 3 Default, based on what is available.
         out_page=${i/.jpg/}${stamp}
-        tesseract $i ${out_page} --oem 1 -l $ocr_lang pdf > /dev/null 2>&1
+        $TESSBIN $i ${out_page} --oem 1 -l $ocr_lang pdf > /dev/null 2>&1
         if [[ $pdf_in -eq 1 ]]; then
-            gswin64c -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE \
+            $GSBIN -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE \
                 -sDEVICE=pdfwrite -r96 -dCompatibilityLevel=1.7 -dPDFSETTINGS=/screen \
                 -dColorImageResolution=1 -dGrayImageResolution=1 -dMonoImageResolution=1 -dColorConverstionStrategy=/Gray -dProcessColorModel=/DeviceGray \
                 -sOutputFile="comp_${out_page}.pdf" ${out_page}.pdf
-            pdftk "${i/.jpg/.pdf}" background "comp_${out_page}.pdf" output "${i/.jpg/-ocr.pdf}"
+            $PDFTKBIN "${i/.jpg/.pdf}" background "comp_${out_page}.pdf" output "${i/.jpg/-ocr.pdf}"
             # Reduce number of auxiliary files when processing
             rm -f $i                     # JPG file
             rm -f ${i/.jpg/.pdf}         # orig PDF page
@@ -72,7 +77,7 @@ ocr_main_loop () { # {{{
     done
 } # }}}
 create_full_pdf () { # {{{
-    gswin64c -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE \
+    $GSBIN -q -dQUIET -dSAFER -dBATCH -dNOPROMPT -dNOPAUSE \
         -sDEVICE=pdfwrite -r96 -dCompatibilityLevel=1.7 -dPDFSETTINGS=/default \
         -sOutputFile="${output_name}" *${stamp}.pdf
 } # }}}
@@ -81,7 +86,7 @@ final_pdf () { # {{{
     if [[ $pdf_in -eq 0 ]]; then
         create_full_pdf
     elif [[ $pdf_in -eq 1 ]]; then
-        pdftk *-ocr.pdf cat output "${output_name}"
+        $PDFTKBIN *-ocr.pdf cat output "${output_name}"
     fi
 } # }}}
 clean_byproducts () { # {{{
@@ -100,7 +105,7 @@ test_for_space () { # {{{
 test_for_pdftk () { # {{{
     # Test if fname has space in it and abort, we don't deal with them.
     # For now.
-    if pdftk --version > /dev/null 2>&1; then
+    if $PDFTKBIN --version > /dev/null 2>&1; then
         has_pdftk=1
     else
         has_pdftk=0
