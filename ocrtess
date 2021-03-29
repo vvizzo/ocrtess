@@ -12,13 +12,15 @@
 # lang  - pol [default], eng, fra; can be used in combination
 #         eg. pol+eng
 
-# TODO: 
+# TODO:
 #   spaces in 'jpegs'
 #   page by page to save disc space when processing pdfs
 #   refactor gs calls? (when doing page-by-page?)
 #   make gs calls more system independent
 #   work on pdfs when pdftk not available
 #   rewrite in Python...
+#   better preparation of files according to:
+#       https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html
 
 # Setup binaries
 GSBIN='gswin64c'
@@ -54,7 +56,7 @@ create_list_of_files () { # {{{
 ocr_main_loop () { # {{{
     # Main tesseract loop
     # It will produce plethora of pdf files
-    for i in ${list_of_jpegs[@]}; do 
+    for i in ${list_of_jpegs[@]}; do
         # --oem - OCR engine mode:
         # 0 Legacy engine only.
         # 1 Neural nets LSTM engine only. <- better results than default
